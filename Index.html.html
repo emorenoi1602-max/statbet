@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StatBet — Analizador Estadístico de Fútbol</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0d12;
+  --bg2:#10141c;
+  --bg3:#161b26;
+  --border:#1e2535;
+  --border2:#2a3347;
+  --green:#00e87a;
+  --green2:#00b85e;
+  --green-dim:#0a2318;
+  --red:#ff4d6d;
+  --red-dim:#1f0a10;
+  --amber:#ffb547;
+  --amber-dim:#1f1508;
+  --blue:#4da8ff;
+  --text:#e8eaf0;
+  --text2:#8892a4;
+  --text3:#4a5568;
+  --mono:'DM Mono',monospace;
+  --sans:'Inter',sans-serif;
+  --display:'Syne',sans-serif;
+  --radius:10px;
+  --radius-lg:16px;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.6;min-height:100vh;overflow-x:hidden}
+
+/* ── NOISE OVERLAY ── */
+body::before{content:'';position:fixed;inset:0;opacity:.03;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");pointer-events:none;z-index:0}
+
+/* ── GRID BG ── */
+.grid-bg{position:fixed;inset:0;background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);background-size:48px 48px;opacity:.4;pointer-events:none;z-index:0}
+
+/* ── NAV ── */
+nav{position:sticky;top:0;z-index:100;background:rgba(10,13,18,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);padding:0 2rem;display:flex;align-items:center;justify-content:space-between;height:60px}
+.nav-logo{font-family:var(--display);font-size:1.2rem;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:.5rem}
+.nav-logo span{color:var(--green)}
+.nav-badge{font-family:var(--mono);font-size:.65rem;background:var(--green-dim);color:var(--green);border:1px solid var(--green2);padding:2px 8px;border-radius:4px;letter-spacing:.05em}
+.nav-links{display:flex;gap:2rem}
+.nav-links a{color:var(--text2);text-decoration:none;font-size:.85rem;letter-spacing:.02em;transition:color .2s}
+.nav-links a:hover{color:var(--green)}
+
+/* ── HERO ── */
+.hero{position:relative;z-index:1;padding:6rem 2rem 4rem;max-width:900px;margin:0 auto;text-align:center}
+.hero-eyebrow{font-family:var(--mono);font-size:.75rem;color:var(--green);letter-spacing:.15em;margin-bottom:1.5rem;display:flex;align-items:center;justify-content:center;gap:.75rem}
+.hero-eyebrow::before,.hero-eyebrow::after{content:'';display:block;width:40px;height:1px;background:var(--green);opacity:.4}
+.hero h1{font-family:var(--display);font-size:clamp(2.4rem,6vw,4rem);font-weight:800;line-height:1.05;letter-spacing:-.03em;margin-bottom:1.25rem}
+.hero h1 em{font-style:normal;color:var(--green)}
+.hero p{font-size:1.05rem;color:var(--text2);max-width:560px;margin:0 auto 2.5rem;line-height:1.7}
+.hero-cta{display:inline-flex;align-items:center;gap:.5rem;background:var(--green);color:#000;font-family:var(--display);font-weight:700;font-size:.9rem;padding:.75rem 2rem;border-radius:var(--radius);text-decoration:none;transition:transform .2s,box-shadow .2s;letter-spacing:.02em}
+.hero-cta:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(0,232,122,.25)}
+.hero-cta svg{width:16px;height:16px}
+.hero-stats{display:flex;justify-content:center;gap:3rem;margin-top:3.5rem;padding-top:2.5rem;border-top:1px solid var(--border)}
+.hero-stat span{display:block;font-family:var(--display);font-size:1.8rem;font-weight:800;color:var(--green)}
+.hero-stat p{font-size:.78rem;color:var(--text3);font-family:var(--mono);letter-spacing:.05em;margin-top:.2rem}
+
+/* ── GLOWING ACCENT ── */
+.glow{position:absolute;width:600px;height:600px;background:radial-gradient(circle,rgba(0,232,122,.07) 0%,transparent 70%);border-radius:50%;top:-100px;left:50%;transform:translateX(-50%);pointer-events:none}
+
+/* ── MAIN LAYOUT ── */
+.main{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:0 1.5rem 4rem}
+
+/* ── TABS ── */
+.tabs-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:1.5rem}
+.tabs-header{display:flex;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.tabs-header::-webkit-scrollbar{height:3px}
+.tabs-header::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.tab-btn{flex:1;min-width:90px;padding:1rem .5rem;font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;color:var(--text3);background:transparent;border:none;cursor:pointer;transition:all .2s;white-space:nowrap;border-bottom:2px solid transparent;position:relative}
+.tab-btn.active{color:var(--green);border-bottom-color:var(--green);background:rgba(0,232,122,.04)}
+.tab-btn:hover:not(.active){color:var(--text2)}
+.tab-num{display:inline-block;width:16px;height:16px;border-radius:50%;border:1px solid currentColor;font-size:.6rem;line-height:16px;text-align:center;margin-right:.3rem;opacity:.6}
+.tab-content{display:none;padding:1.75rem}
+.tab-content.active{display:block}
+.ai-tab-btn{background:linear-gradient(90deg,rgba(0,232,122,.08),rgba(0,232,122,.03))!important;color:var(--green)!important;border-left:1px solid rgba(0,232,122,.25)!important}
+.ai-tab-btn .tab-num{opacity:1;background:rgba(0,232,122,.15);border-color:var(--green)}
+
+/* ── CARDS & PANELS ── */
+.panel{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1rem}
+.panel-title{font-family:var(--display);font-size:.85rem;font-weight:700;letter-spacing:.04em;color:var(--text2);margin-bottom:1rem;text-transform:uppercase}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem}
+
+/* ── METRIC CARDS ── */
+.metric{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem}
+.metric-label{font-family:var(--mono);font-size:.7rem;color:var(--text3);letter-spacing:.08em;margin-bottom:.4rem;text-transform:uppercase}
+.metric-value{font-family:var(--display);font-size:1.8rem;font-weight:800;color:var(--text);line-height:1}
+.metric-sub{font-size:.75rem;color:var(--text3);margin-top:.3rem}
+.metric.green .metric-value{color:var(--green)}
+.metric.red .metric-value{color:var(--red)}
+.metric.amber .metric-value{color:var(--amber)}
+
+/* ── FORM ELEMENTS ── */
+label{font-family:var(--mono);font-size:.72rem;color:var(--text3);letter-spacing:.06em;display:block;margin-bottom:.4rem;text-transform:uppercase}
+input[type=number]{width:100%;padding:.6rem .9rem;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);font-family:var(--mono);font-size:.9rem;color:var(--text);outline:none;transition:border-color .2s}
+input[type=number]:focus{border-color:var(--green)}
+select{width:100%;padding:.5rem .7rem;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);font-family:var(--mono);font-size:.8rem;color:var(--text);outline:none;cursor:pointer}
+input[type=range]{width:100%;accent-color:var(--green);cursor:pointer;margin:4px 0}
+.field{margin-bottom:.85rem}
+.range-row{display:flex;align-items:center;gap:.75rem;margin-bottom:.85rem}
+.range-row input[type=range]{flex:1}
+.range-val{font-family:var(--mono);font-size:.8rem;color:var(--green);min-width:32px}
+
+/* ── RESULT BAR ── */
+.bar-wrap{height:6px;background:var(--border);border-radius:3px;margin-top:.5rem;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;background:var(--green);transition:width .5s cubic-bezier(.4,0,.2,1)}
+
+/* ── VERDICT ── */
+.verdict{padding:1rem 1.25rem;border-radius:var(--radius);font-size:.9rem;border-left:3px solid;margin-top:1rem;line-height:1.6}
+.verdict-good{background:var(--green-dim);border-color:var(--green);color:#a8f0ce}
+.verdict-bad{background:var(--red-dim);border-color:var(--red);color:#ffb3c0}
+.verdict-neutral{background:var(--amber-dim);border-color:var(--amber);color:#ffd999}
+.verdict strong{color:inherit;display:block;margin-bottom:.3rem;font-family:var(--display);font-size:1rem;font-weight:700}
+
+/* ── MATRIX ── */
+.matrix-wrap{overflow-x:auto}
+.matrix-grid{display:grid;gap:2px}
+.m-cell{padding:5px 3px;text-align:center;font-family:var(--mono);font-size:.7rem;border-radius:3px}
+.m-label{font-family:var(--mono);font-size:.65rem;color:var(--text3);text-align:center;display:flex;align-items:center;justify-content:center}
+
+/* ── ROWS ── */
+.row-item{display:flex;align-items:center;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.85rem}
+.row-item:last-child{border-bottom:none}
+.row-item .key{color:var(--text2)}
+.row-item .val{font-family:var(--mono);font-size:.8rem;color:var(--green)}
+
+/* ── BADGES ── */
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:.68rem;letter-spacing:.04em;font-weight:500}
+.badge-green{background:var(--green-dim);color:var(--green);border:1px solid rgba(0,232,122,.2)}
+.badge-red{background:var(--red-dim);color:var(--red);border:1px solid rgba(255,77,109,.2)}
+.badge-amber{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(255,181,71,.2)}
+.badge-blue{background:rgba(77,168,255,.1);color:var(--blue);border:1px solid rgba(77,168,255,.2)}
+
+/* ── STARS ── */
+.stars{color:var(--amber);font-size:1.1rem;letter-spacing:.1rem}
+
+/* ── CHECKLIST ── */
+.check-row{display:flex;align-items:center;justify-content:space-between;padding:.65rem 0;border-bottom:1px solid var(--border);font-size:.85rem;color:var(--text2)}
+.check-row:last-child{border-bottom:none}
+
+/* ── GLOBAL SUMMARY ── */
+.summary-block{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1rem}
+
+/* ── GENERATE BTN ── */
+.gen-btn{width:100%;padding:.9rem;background:linear-gradient(135deg,var(--green2),var(--green));color:#000;font-family:var(--display);font-weight:700;font-size:.95rem;border:none;border-radius:var(--radius);cursor:pointer;transition:transform .2s,box-shadow .2s;letter-spacing:.02em;margin-top:.5rem}
+.gen-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,232,122,.3)}
+
+/* ── REPORT MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(8px);z-index:200;align-items:center;justify-content:center;padding:1rem}
+.modal-overlay.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-lg);max-width:680px;width:100%;max-height:88vh;overflow-y:auto;padding:2rem}
+.modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem}
+.modal-title{font-family:var(--display);font-size:1.2rem;font-weight:800}
+.modal-close{background:transparent;border:1px solid var(--border);color:var(--text2);width:32px;height:32px;border-radius:6px;cursor:pointer;font-size:1rem;transition:all .2s}
+.modal-close:hover{border-color:var(--red);color:var(--red)}
+.modal-verdict{padding:1.25rem;border-radius:var(--radius);margin-bottom:1.25rem;text-align:center}
+.modal-section{margin-bottom:1.25rem}
+.modal-section h3{font-family:var(--display);font-size:.9rem;font-weight:700;color:var(--text2);margin-bottom:.75rem;text-transform:uppercase;letter-spacing:.05em}
+.modal-row{display:flex;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid var(--border);font-size:.85rem}
+.modal-row:last-child{border-bottom:none}
+
+/* ── FOOTER ── */
+footer{position:relative;z-index:1;border-top:1px solid var(--border);padding:2rem;text-align:center;color:var(--text3);font-family:var(--mono);font-size:.72rem;letter-spacing:.04em}
+footer a{color:var(--text3);text-decoration:none}
+footer a:hover{color:var(--green)}
+
+/* ── AI TAB ── */
+.quick-q{padding:4px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:20px;font-family:var(--mono);font-size:.7rem;color:var(--text2);cursor:pointer;transition:all .2s}
+.quick-q:hover{border-color:var(--green);color:var(--green)}
+.chat-bubble{padding:.75rem 1rem;border-radius:var(--radius);font-size:.85rem;line-height:1.6;max-width:90%}
+.chat-user{background:rgba(0,232,122,.08);border:1px solid rgba(0,232,122,.15);align-self:flex-end;color:var(--text)}
+.chat-ai{background:var(--bg3);border:1px solid var(--border);align-self:flex-start;color:var(--text2);white-space:pre-wrap}
+.chat-label{font-family:var(--mono);font-size:.65rem;letter-spacing:.06em;margin-bottom:.25rem}
+.chat-label.user{text-align:right;color:var(--green)}
+.chat-label.ai{color:var(--text3)}
+.typing{display:flex;gap:4px;align-items:center;padding:.5rem}
+.typing span{width:6px;height:6px;border-radius:50%;background:var(--text3);animation:blink 1.2s infinite}
+.typing span:nth-child(2){animation-delay:.2s}
+.typing span:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+
+/* ── SCROLL ANIMATION ── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+.fade-up{animation:fadeUp .5s ease both}
+
+/* ── RESPONSIVE ── */
+@media(max-width:640px){
+  .grid2,.grid3{grid-template-columns:1fr}
+  .hero h1{font-size:2rem}
+  .hero-stats{gap:1.5rem}
+  .nav-links{display:none}
+  .tabs-header{justify-content:flex-start}
+}
+</style>
+</head>
+<body>
+
+<div class="grid-bg"></div>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l3 2-1 4 5 2 5-2-1-4 3-2" stroke="#00e87a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Stat<span>Bet</span>
+  </div>
+  <div class="nav-links">
+    <a href="#herramienta">Herramienta</a>
+    <a href="#metodologia">Metodología</a>
+    <a href="#aviso">Aviso Legal</a>
+  </div>
+  <span class="nav-badge">BETA v1.0</span>
+</nav>
+
+<!-- HERO -->
+<section class="hero" id="inicio">
+  <div class="glow"></div>
+  <div class="hero-eyebrow">ANÁLISIS ESTADÍSTICO PROFESIONAL</div>
+  <h1>Apuestas de fútbol con <em>matemáticas</em>, no con corazonadas</h1>
+  <p>6 módulos integrados: Modelo de Poisson, Expected Goals, Value Betting, Criterio de Kelly, análisis global y <strong style="color:var(--green)">análisis con Inteligencia Artificial</strong>. Todo en un solo lugar.</p>
+  <a href="#herramienta" class="hero-cta">
+    Abrir analizador
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+  </a>
+  <div class="hero-stats">
+    <div class="hero-stat"><span>6</span><p>MÓDULOS</p></div>
+    <div class="hero-stat"><span>3</span><p>MODELOS</p></div>
+    <div class="hero-stat"><span>100%</span><p>GRATUITO</p></div>
+    <div class="hero-stat"><span>0</span><p>REGISTRO</p></div>
+  </div>
+</section>
+
+<!-- TOOL -->
+<main class="main" id="herramienta">
+  <div class="tabs-wrap fade-up">
+    <div class="tabs-header">
+      <button class="tab-btn active" onclick="switchTab('poisson',this)"><span class="tab-num">1</span>POISSON</button>
+      <button class="tab-btn" onclick="switchTab('xg',this)"><span class="tab-num">2</span>xG & FORMA</button>
+      <button class="tab-btn" onclick="switchTab('value',this)"><span class="tab-num">3</span>VALUE BET</button>
+      <button class="tab-btn" onclick="switchTab('bankroll',this)"><span class="tab-num">4</span>BANKROLL</button>
+      <button class="tab-btn" onclick="switchTab('global',this)"><span class="tab-num">5</span>GLOBAL</button>
+      <button class="tab-btn ai-tab-btn" onclick="switchTab('ai',this)"><span class="tab-num">✦</span>ANÁLISIS IA</button>
+    </div>
+
+    <!-- ══ TAB 1: POISSON ══ -->
+    <div id="tab-poisson" class="tab-content active">
+      <div class="grid2">
+        <div class="panel">
+          <div class="panel-title">Equipo Local</div>
+          <div class="field"><label>Goles marcados / partido</label><input type="number" id="h_att" value="1.6" step="0.1" min="0" max="5" oninput="calcPoisson()"></div>
+          <div class="field"><label>Goles recibidos / partido</label><input type="number" id="h_def" value="1.0" step="0.1" min="0" max="5" oninput="calcPoisson()"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Equipo Visitante</div>
+          <div class="field"><label>Goles marcados / partido</label><input type="number" id="a_att" value="1.2" step="0.1" min="0" max="5" oninput="calcPoisson()"></div>
+          <div class="field"><label>Goles recibidos / partido</label><input type="number" id="a_def" value="1.3" step="0.1" min="0" max="5" oninput="calcPoisson()"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="range-row">
+          <label style="margin:0;min-width:180px">Ventaja local (factor)</label>
+          <input type="range" id="h_adv" min="1.0" max="1.5" step="0.05" value="1.2" oninput="document.getElementById('h_adv_v').textContent=parseFloat(this.value).toFixed(2);calcPoisson()">
+          <span class="range-val" id="h_adv_v">1.20</span>
+        </div>
+      </div>
+      <div class="grid3" style="margin-bottom:1rem">
+        <div class="metric green"><div class="metric-label">Victoria Local</div><div class="metric-value" id="p_home">—</div></div>
+        <div class="metric"><div class="metric-label">Empate</div><div class="metric-value" id="p_draw">—</div></div>
+        <div class="metric red"><div class="metric-label">Victoria Visit.</div><div class="metric-value" id="p_away">—</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Matriz de marcadores más probables</div>
+        <div class="matrix-wrap"><div id="matrix_out"></div></div>
+      </div>
+      <div class="panel">
+        <div class="row-item"><span class="key">xG esperados — Local</span><span class="val" id="xg_hp">—</span></div>
+        <div class="row-item"><span class="key">xG esperados — Visitante</span><span class="val" id="xg_ap">—</span></div>
+        <div class="row-item"><span class="key">Total goles esperados</span><span class="val" id="xg_tp">—</span></div>
+        <div class="row-item"><span class="key">Ambos marcan (BTTS)</span><span class="val" id="btts_p">—</span></div>
+        <div class="row-item"><span class="key">Más de 2.5 goles</span><span class="val" id="o25_p">—</span></div>
+      </div>
+    </div>
+
+    <!-- ══ TAB 2: XG ══ -->
+    <div id="tab-xg" class="tab-content">
+      <div class="grid2">
+        <div class="panel">
+          <div class="panel-title">Local — últimos 6 partidos</div>
+          <div class="field"><label>xG promedio a favor</label><input type="number" id="h_xgf" value="1.8" step="0.1" min="0" max="5" oninput="calcXG()"></div>
+          <div class="field"><label>xG promedio en contra</label><input type="number" id="h_xga" value="0.9" step="0.1" min="0" max="5" oninput="calcXG()"></div>
+          <label>Resultados (G/E/P)</label>
+          <div style="display:flex;gap:5px;margin-top:.4rem">
+            <select id="hr1" onchange="calcXG()"><option value="3">G</option><option value="1">E</option><option value="0">P</option></select>
+            <select id="hr2" onchange="calcXG()"><option value="3">G</option><option value="1">E</option><option value="0">P</option></select>
+            <select id="hr3" onchange="calcXG()"><option value="3">G</option><option value="1">E</option><option value="0">P</option></select>
+            <select id="hr4" onchange="calcXG()"><option value="3">G</option><option value="1">E</option><option value="0">P</option></select>
+            <select id="hr5" onchange="calcXG()"><option value="1">E</option><option value="3">G</option><option value="0">P</option></select>
+            <select id="hr6" onchange="calcXG()"><option value="0">P</option><option value="3">G</option><option value="1">E</option></select>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Visitante — últimos 6 partidos</div>
+          <div class="field"><label>xG promedio a favor</label><input type="number" id="a_xgf" value="1.2" step="0.1" min="0" max="5" oninput="calcXG()"></div>
+          <div class="field"><label>xG promedio en contra</label><input type="number" id="a_xga" value="1.4" step="0.1" min="0" max="5" oninput="calcXG()"></div>
+          <label>Resultados (G/E/P)</label>
+          <div style="display:flex;gap:5px;margin-top:.4rem">
+            <select id="ar1" onchange="calcXG()"><option value="1">E</option><option value="3">G</option><option value="0">P</option></select>
+            <select id="ar2" onchange="calcXG()"><option value="3">G</option><option value="1">E</option><option value="0">P</option></select>
+            <select id="ar3" onchange="calcXG()"><option value="0">P</option><option value="3">G</option><option value="1">E</option></select>
+            <select id="ar4" onchange="calcXG()"><option value="1">E</option><option value="3">G</option><option value="0">P</option></select>
+            <select id="ar5" onchange="calcXG()"><option value="3">G</option><option value="1">E</option><option value="0">P</option></select>
+            <select id="ar6" onchange="calcXG()"><option value="0">P</option><option value="3">G</option><option value="1">E</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Factores contextuales</div>
+        <div class="grid2">
+          <div>
+            <div class="range-row"><label style="margin:0;min-width:180px">Bajas local (0–3)</label><input type="range" id="h_inj" min="0" max="3" step="1" value="0" oninput="document.getElementById('h_inj_v').textContent=this.value;calcXG()"><span class="range-val" id="h_inj_v">0</span></div>
+            <div class="range-row"><label style="margin:0;min-width:180px">Motivación local (1–5)</label><input type="range" id="h_mot" min="1" max="5" step="1" value="4" oninput="document.getElementById('h_mot_v').textContent=this.value;calcXG()"><span class="range-val" id="h_mot_v">4</span></div>
+          </div>
+          <div>
+            <div class="range-row"><label style="margin:0;min-width:180px">Bajas visitante (0–3)</label><input type="range" id="a_inj" min="0" max="3" step="1" value="1" oninput="document.getElementById('a_inj_v').textContent=this.value;calcXG()"><span class="range-val" id="a_inj_v">1</span></div>
+            <div class="range-row"><label style="margin:0;min-width:180px">Motivación visitante (1–5)</label><input type="range" id="a_mot" min="1" max="5" step="1" value="3" oninput="document.getElementById('a_mot_v').textContent=this.value;calcXG()"><span class="range-val" id="a_mot_v">3</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="grid3" style="margin-bottom:1rem">
+        <div class="metric"><div class="metric-label">Puntos local / 18</div><div class="metric-value" id="h_pts">—</div><div class="metric-sub" id="h_pct">—</div></div>
+        <div class="metric"><div class="metric-label">Puntos visit. / 18</div><div class="metric-value" id="a_pts">—</div><div class="metric-sub" id="a_pct">—</div></div>
+        <div class="metric green"><div class="metric-label">Ventaja xG</div><div class="metric-value" id="xg_edge_v">—</div><div class="metric-sub" id="xg_edge_s">—</div></div>
+      </div>
+      <div id="xg_verdict" class="verdict verdict-neutral">Ingresa los datos para ver el análisis.</div>
+    </div>
+
+    <!-- ══ TAB 3: VALUE ══ -->
+    <div id="tab-value" class="tab-content">
+      <div class="panel">
+        <div class="panel-title">Calculadora de valor esperado (EV)</div>
+        <div class="grid2" style="margin-bottom:1rem">
+          <div class="field"><label>Tu probabilidad estimada (%)</label><input type="number" id="my_prob" value="55" min="1" max="99" oninput="calcValue()"></div>
+          <div class="field"><label>Cuota de la casa (decimal)</label><input type="number" id="odd" value="2.10" step="0.01" min="1.01" oninput="calcValue()"></div>
+        </div>
+        <div class="grid3" style="margin-bottom:1rem">
+          <div class="metric"><div class="metric-label">Prob. implícita (casa)</div><div class="metric-value" id="impl_p">—</div></div>
+          <div class="metric"><div class="metric-label">Valor esperado (EV)</div><div class="metric-value" id="ev_v">—</div></div>
+          <div class="metric"><div class="metric-label">Edge sobre la casa</div><div class="metric-value" id="edge_v">—</div></div>
+        </div>
+        <div id="val_verdict" class="verdict verdict-neutral">Ingresa los datos para ver el análisis.</div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Convertidor de cuotas</div>
+        <div class="grid3">
+          <div class="field"><label>Decimal</label><input type="number" id="c_dec" placeholder="2.50" step="0.01" oninput="convertOdds('dec')"></div>
+          <div class="field"><label>Americano</label><input type="number" id="c_am" placeholder="+150" oninput="convertOdds('am')"></div>
+          <div class="field"><label>Prob. implícita (%)</label><input type="number" id="c_pct" placeholder="40.0" step="0.1" oninput="convertOdds('pct')"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Rating de la apuesta</div>
+        <div class="range-row"><label style="margin:0;min-width:200px">Confianza en estimación (1–5)</label><input type="range" id="conf" min="1" max="5" value="3" oninput="document.getElementById('conf_v').textContent=this.value;calcRating()"><span class="range-val" id="conf_v">3</span></div>
+        <div id="rating_out" style="margin-top:.5rem"></div>
+      </div>
+    </div>
+
+    <!-- ══ TAB 4: BANKROLL ══ -->
+    <div id="tab-bankroll" class="tab-content">
+      <div class="panel">
+        <div class="panel-title">Criterio de Kelly</div>
+        <div class="grid2" style="margin-bottom:1rem">
+          <div class="field"><label>Bankroll total ($)</label><input type="number" id="bk_total" value="1000" oninput="calcKelly()"></div>
+          <div class="field"><label>Cuota decimal</label><input type="number" id="bk_odd" value="2.10" step="0.01" oninput="calcKelly()"></div>
+          <div class="field"><label>Probabilidad estimada (%)</label><input type="number" id="bk_prob" value="55" oninput="calcKelly()"></div>
+          <div>
+            <div class="range-row"><label style="margin:0;min-width:180px">Fracción Kelly</label><input type="range" id="bk_frac" min="0.1" max="1" step="0.05" value="0.25" oninput="document.getElementById('bk_frac_v').textContent=parseFloat(this.value).toFixed(2);calcKelly()"><span class="range-val" id="bk_frac_v">0.25</span></div>
+          </div>
+        </div>
+        <div class="grid3">
+          <div class="metric"><div class="metric-label">Kelly completo</div><div class="metric-value" id="kel_full">—</div></div>
+          <div class="metric green"><div class="metric-label">Apuesta recomendada</div><div class="metric-value" id="kel_bet">—</div></div>
+          <div class="metric"><div class="metric-label">% del bankroll</div><div class="metric-value" id="kel_pct">—</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Simulación de crecimiento</div>
+        <div class="range-row"><label style="margin:0;min-width:160px">Apuestas a simular</label><input type="range" id="sim_n" min="10" max="200" step="10" value="50" oninput="document.getElementById('sim_n_v').textContent=this.value;runSim()"><span class="range-val" id="sim_n_v">50</span></div>
+        <div class="grid3" id="sim_cards" style="margin:.75rem 0"></div>
+        <div style="position:relative;height:140px"><canvas id="growthChart"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Reglas de oro</div>
+        <div class="row-item"><span class="key">Máximo por apuesta (conservador)</span><span><span class="badge badge-green">1–3%</span></span></div>
+        <div class="row-item"><span class="key">Máximo con Kelly completo</span><span><span class="badge badge-amber">5–10%</span></span></div>
+        <div class="row-item"><span class="key">Stop-loss diario recomendado</span><span><span class="badge badge-red">–10%</span></span></div>
+        <div class="row-item"><span class="key">ROI realista a largo plazo</span><span><span class="badge badge-blue">5–10%</span></span></div>
+      </div>
+    </div>
+
+    <!-- ══ TAB 5: GLOBAL ══ -->
+    <div id="tab-global" class="tab-content">
+      <div class="panel">
+        <div class="panel-title">Resumen del análisis</div>
+        <div id="global_sum"><p style="color:var(--text3);font-size:.85rem">Completa los módulos anteriores para ver el resumen aquí.</p></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Checklist pre-apuesta</div>
+        <div class="check-row"><span>Modelo Poisson calculado</span><span id="chk1" class="badge badge-amber">Pendiente</span></div>
+        <div class="check-row"><span>Análisis xG & forma completado</span><span id="chk2" class="badge badge-amber">Pendiente</span></div>
+        <div class="check-row"><span>Value Betting verificado</span><span id="chk3" class="badge badge-amber">Pendiente</span></div>
+        <div class="check-row"><span>Bankroll y Kelly calculado</span><span id="chk4" class="badge badge-amber">Pendiente</span></div>
+        <div class="check-row"><span>Edge positivo sobre la casa</span><span id="chk5" class="badge badge-amber">Pendiente</span></div>
+        <div class="check-row"><span>Apuesta dentro del límite (≤5%)</span><span id="chk6" class="badge badge-amber">Pendiente</span></div>
+      </div>
+      <button class="gen-btn" onclick="openReport()">Generar reporte completo →</button>
+    </div>
+
+    <!-- ══ TAB 6: AI ══ -->
+    <div id="tab-ai" class="tab-content">
+      <!-- API key input -->
+      <div class="panel" style="border-color:rgba(0,232,122,.25);background:linear-gradient(135deg,rgba(0,232,122,.04),rgba(0,232,122,.01))">
+        <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)"></div>
+          <div class="panel-title" style="margin:0">Analizador con Inteligencia Artificial</div>
+        </div>
+        <p style="font-size:.82rem;color:var(--text2);margin-bottom:1rem;line-height:1.6">La IA analiza todos tus datos estadísticos (Poisson, xG, Value Betting, Kelly) y te da una recomendación detallada. También puedes chatear libremente sobre el partido.</p>
+        <div class="field">
+          <label>Tu API Key de Anthropic (Claude)</label>
+          <div style="display:flex;gap:.5rem">
+            <input type="password" id="api_key" placeholder="sk-ant-..." style="flex:1">
+            <button onclick="testKey()" style="padding:.6rem 1rem;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:.75rem;cursor:pointer;white-space:nowrap" id="key_btn">Verificar</button>
+          </div>
+          <span style="font-size:.72rem;color:var(--text3);margin-top:.3rem;display:block">Obtén tu key en <a href="https://console.anthropic.com" target="_blank" style="color:var(--green)">console.anthropic.com</a> · No se almacena en ningún servidor</span>
+        </div>
+        <div id="key_status" style="display:none;padding:.5rem .75rem;border-radius:var(--radius);font-family:var(--mono);font-size:.75rem;margin-top:.25rem"></div>
+      </div>
+
+      <!-- Auto-analysis -->
+      <div class="panel">
+        <div class="panel-title">Análisis automático del partido</div>
+        <p style="font-size:.82rem;color:var(--text2);margin-bottom:1rem">La IA lee todos los datos ingresados en los módulos anteriores y genera un análisis completo con recomendación final.</p>
+        <button class="gen-btn" onclick="runAutoAnalysis()" id="auto_btn" style="margin-top:0">
+          ✦ Analizar con IA todos los datos →
+        </button>
+        <div id="auto_result" style="margin-top:1rem;display:none">
+          <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+            <div style="background:var(--bg);padding:.6rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:.5rem">
+              <div style="width:6px;height:6px;border-radius:50%;background:var(--green)"></div>
+              <span style="font-family:var(--mono);font-size:.7rem;color:var(--text3);letter-spacing:.06em">ANÁLISIS IA</span>
+            </div>
+            <div id="auto_text" style="padding:1.25rem;font-size:.88rem;line-height:1.8;color:var(--text2);white-space:pre-wrap"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat -->
+      <div class="panel">
+        <div class="panel-title">Chat con el analista IA</div>
+        <p style="font-size:.82rem;color:var(--text2);margin-bottom:.75rem">Haz preguntas específicas sobre el partido, estrategia o cualquier mercado de apuestas.</p>
+        <div id="chat_msgs" style="min-height:180px;max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:1rem;margin-bottom:.75rem;display:flex;flex-direction:column;gap:.75rem;background:var(--bg)">
+          <div style="text-align:center;color:var(--text3);font-size:.8rem;font-family:var(--mono)">— El chat aparecerá aquí —</div>
+        </div>
+        <div style="display:flex;gap:.5rem">
+          <input type="text" id="chat_input" placeholder="Ej: ¿Vale la pena el mercado de ambos marcan?" style="flex:1;padding:.65rem .9rem;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);font-family:var(--sans);font-size:.88rem;color:var(--text);outline:none" onkeydown="if(event.key==='Enter')sendChat()">
+          <button onclick="sendChat()" id="chat_btn" style="padding:.65rem 1.2rem;background:var(--green);color:#000;font-family:var(--display);font-weight:700;font-size:.85rem;border:none;border-radius:var(--radius);cursor:pointer;transition:opacity .2s;white-space:nowrap">Enviar</button>
+        </div>
+        <div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
+          <button onclick="quickQ('¿Es buena apuesta la victoria local?')" class="quick-q">Victoria local</button>
+          <button onclick="quickQ('¿Qué mercado tiene más valor en este partido?')" class="quick-q">Mejor mercado</button>
+          <button onclick="quickQ('¿Cuál es el riesgo principal de esta apuesta?')" class="quick-q">Riesgos</button>
+          <button onclick="quickQ('¿Vale la pena apostar al empate?')" class="quick-q">Empate</button>
+          <button onclick="quickQ('Dame una estrategia de bankroll para este partido')" class="quick-q">Bankroll</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end tabs-wrap -->
+</main>
+
+<!-- METODOLOGÍA -->
+<section id="metodologia" style="position:relative;z-index:1;max-width:1100px;margin:0 auto 4rem;padding:0 1.5rem">
+  <div style="text-align:center;margin-bottom:2.5rem">
+    <div style="font-family:var(--mono);font-size:.72rem;color:var(--green);letter-spacing:.15em;margin-bottom:.75rem">METODOLOGÍA</div>
+    <h2 style="font-family:var(--display);font-size:1.8rem;font-weight:800;letter-spacing:-.02em">Tres métodos estadísticos en un solo análisis</h2>
+  </div>
+  <div class="grid3">
+    <div class="panel" style="border-top:2px solid var(--green)">
+      <div style="font-family:var(--mono);font-size:.7rem;color:var(--green);letter-spacing:.1em;margin-bottom:.75rem">MÉTODO 01</div>
+      <h3 style="font-family:var(--display);font-size:1.1rem;font-weight:700;margin-bottom:.5rem">Modelo de Poisson</h3>
+      <p style="font-size:.85rem;color:var(--text2);line-height:1.6">Calcula la probabilidad de cada marcador posible usando distribución de Poisson basada en promedios reales de goles. El método más usado por analistas profesionales.</p>
+    </div>
+    <div class="panel" style="border-top:2px solid var(--blue)">
+      <div style="font-family:var(--mono);font-size:.7rem;color:var(--blue);letter-spacing:.1em;margin-bottom:.75rem">MÉTODO 02</div>
+      <h3 style="font-family:var(--display);font-size:1.1rem;font-weight:700;margin-bottom:.5rem">Expected Goals (xG)</h3>
+      <p style="font-size:.85rem;color:var(--text2);line-height:1.6">Mide la calidad de las ocasiones generadas, no solo los resultados. Detecta equipos que sobre o sub-rinden respecto a sus goles reales y predice tendencias futuras.</p>
+    </div>
+    <div class="panel" style="border-top:2px solid var(--amber)">
+      <div style="font-family:var(--mono);font-size:.7rem;color:var(--amber);letter-spacing:.1em;margin-bottom:.75rem">MÉTODO 03</div>
+      <h3 style="font-family:var(--display);font-size:1.1rem;font-weight:700;margin-bottom:.5rem">Value Betting + Kelly</h3>
+      <p style="font-size:.85rem;color:var(--text2);line-height:1.6">Detecta cuotas con valor real (EV positivo) y calcula el monto óptimo a apostar usando el Criterio de Kelly para maximizar el crecimiento del bankroll a largo plazo.</p>
+    </div>
+  </div>
+</section>
+
+<!-- AVISO -->
+<section id="aviso" style="position:relative;z-index:1;max-width:900px;margin:0 auto 4rem;padding:0 1.5rem">
+  <div class="panel" style="border-color:rgba(255,181,71,.2);background:var(--amber-dim);text-align:center">
+    <div style="font-family:var(--mono);font-size:.7rem;color:var(--amber);letter-spacing:.1em;margin-bottom:.5rem">AVISO LEGAL</div>
+    <p style="font-size:.85rem;color:#ffd999;line-height:1.7">Esta herramienta es exclusivamente educativa. Ningún modelo estadístico garantiza ganancias en apuestas deportivas. Las apuestas implican riesgo económico real. Juega siempre con responsabilidad y dentro de tus posibilidades. Si el juego es un problema para ti, busca ayuda profesional.</p>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>StatBet © 2025 &nbsp;·&nbsp; Herramienta estadística educativa &nbsp;·&nbsp; <a href="#inicio">Volver arriba</a></p>
+</footer>
+
+<!-- REPORT MODAL -->
+<div class="modal-overlay" id="reportModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Reporte completo</span>
+      <button class="modal-close" onclick="closeReport()">✕</button>
+    </div>
+    <div id="modal_body"></div>
+  </div>
+</div>
+
+<script>
+/* ══ STATE ══ */
+let pDone=false,xDone=false,vDone=false,kDone=false;
+let gEV=0,gEdge=0,gBet=0,gBankroll=1000;
+let growthInst=null;
+
+/* ══ TABS ══ */
+function switchTab(id,btn){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-'+id).classList.add('active');
+  if(id==='bankroll')setTimeout(runSim,80);
+  if(id==='global'){updateChecklist();updateGlobalSummary();}
+}
+
+/* ══ POISSON ══ */
+function poisson(lam,k){let v=Math.exp(-lam);for(let i=1;i<=k;i++)v*=lam/i;return v;}
+function calcPoisson(){
+  const ha=+document.getElementById('h_att').value||1.6;
+  const hd=+document.getElementById('h_def').value||1.0;
+  const aa=+document.getElementById('a_att').value||1.2;
+  const ad=+document.getElementById('a_def').value||1.3;
+  const adv=+document.getElementById('h_adv').value||1.2;
+  const lh=(ha+ad)/2*adv, la=(aa+hd)/2;
+  document.getElementById('xg_hp').textContent=lh.toFixed(2);
+  document.getElementById('xg_ap').textContent=la.toFixed(2);
+  document.getElementById('xg_tp').textContent=(lh+la).toFixed(2);
+  let ph=0,pd=0,pa=0,btts=0,o25=0,mat=[];
+  for(let h=0;h<=6;h++){let row=[];for(let a=0;a<=6;a++){const p=poisson(lh,h)*poisson(la,a);row.push(p);if(h>a)ph+=p;else if(h===a)pd+=p;else pa+=p;if(h>0&&a>0)btts+=p;if(h+a>2.5)o25+=p;}mat.push(row);}
+  document.getElementById('p_home').textContent=(ph*100).toFixed(1)+'%';
+  document.getElementById('p_draw').textContent=(pd*100).toFixed(1)+'%';
+  document.getElementById('p_away').textContent=(pa*100).toFixed(1)+'%';
+  document.getElementById('btts_p').textContent=(btts*100).toFixed(1)+'%';
+  document.getElementById('o25_p').textContent=(o25*100).toFixed(1)+'%';
+  // Matrix
+  const mc=document.getElementById('matrix_out');
+  let html=`<div style="display:grid;grid-template-columns:24px repeat(5,1fr);gap:2px">`;
+  html+=`<div class="m-label">L\V</div>`;
+  for(let a=0;a<=4;a++)html+=`<div class="m-label">${a}</div>`;
+  for(let h=0;h<=4;h++){
+    html+=`<div class="m-label">${h}</div>`;
+    for(let a=0;a<=4;a++){
+      const pct=mat[h][a]*100;
+      const t=Math.min(pct/8,1);
+      const bg=`rgba(0,232,122,${t*0.7+0.05})`;
+      const fc=t>0.5?'#000':'#8892a4';
+      html+=`<div class="m-cell" style="background:${bg};color:${fc}">${pct.toFixed(1)}%</div>`;
+    }
+  }
+  html+='</div>';
+  mc.innerHTML=html;
+  pDone=true;
+}
+
+/* ══ XG ══ */
+function calcXG(){
+  const hxf=+document.getElementById('h_xgf').value||1.8;
+  const hxa=+document.getElementById('h_xga').value||0.9;
+  const axf=+document.getElementById('a_xgf').value||1.2;
+  const axa=+document.getElementById('a_xga').value||1.4;
+  const hi=+document.getElementById('h_inj').value||0;
+  const ai=+document.getElementById('a_inj').value||1;
+  const hm=+document.getElementById('h_mot').value||4;
+  const am=+document.getElementById('a_mot').value||3;
+  let hp=0,ap=0;
+  for(let i=1;i<=6;i++){hp+=+document.getElementById('hr'+i).value;ap+=+document.getElementById('ar'+i).value;}
+  document.getElementById('h_pts').textContent=hp+'/18';
+  document.getElementById('a_pts').textContent=ap+'/18';
+  document.getElementById('h_pct').textContent=(hp/18*100).toFixed(0)+'% rendimiento';
+  document.getElementById('a_pct').textContent=(ap/18*100).toFixed(0)+'% rendimiento';
+  const hScore=(hxf-hxa)+(hm*0.1)-(hi*0.2)+(hp/18*0.5);
+  const aScore=(axf-axa)+(am*0.1)-(ai*0.2)+(ap/18*0.5);
+  const edge=hScore-aScore;
+  document.getElementById('xg_edge_v').textContent=(edge>0?'+':'')+edge.toFixed(2);
+  document.getElementById('xg_edge_s').textContent=edge>0.3?'Local favorito':edge<-0.3?'Visitante favorito':'Partido parejo';
+  const vd=document.getElementById('xg_verdict');
+  if(edge>0.5){vd.className='verdict verdict-good';vd.innerHTML='<strong>Ventaja real del local</strong>El análisis xG indica que el local genera y concede ocasiones claramente favorables. Considerar mercados a favor del local o mercados de goles altos.';}
+  else if(edge<-0.5){vd.className='verdict verdict-good';vd.innerHTML='<strong>Ventaja real del visitante</strong>El visitante tiene mejor rendimiento xG ajustado. Explorar mercados a favor del visitante.';}
+  else{vd.className='verdict verdict-neutral';vd.innerHTML='<strong>Partido muy parejo</strong>Los indicadores xG no favorecen claramente a ningún equipo. Mayor riesgo en resultado directo — explorar mercados de goles.';}
+  xDone=true;
+}
+
+/* ══ VALUE ══ */
+function calcValue(){
+  const mp=+document.getElementById('my_prob').value/100;
+  const od=+document.getElementById('odd').value;
+  if(!mp||!od)return;
+  const ip=1/od, ev=(mp*od)-1, edge=(mp-ip)*100;
+  document.getElementById('impl_p').textContent=(ip*100).toFixed(1)+'%';
+  document.getElementById('ev_v').textContent=(ev>=0?'+':'')+ev.toFixed(3);
+  document.getElementById('edge_v').textContent=(edge>=0?'+':'')+edge.toFixed(1)+'%';
+  gEV=ev;gEdge=edge;
+  const vd=document.getElementById('val_verdict');
+  if(ev>0.05&&edge>3){vd.className='verdict verdict-good';vd.innerHTML='<strong>HAY VALOR — Edge real significativo</strong>EV positivo por encima del umbral profesional. A largo plazo esta apuesta es matemáticamente rentable si tu estimación es precisa.';}
+  else if(ev>0){vd.className='verdict verdict-neutral';vd.innerHTML='<strong>Valor marginal</strong>El edge positivo existe pero es pequeño. Solo apostar con alta confianza en tu estimación de probabilidad.';}
+  else{vd.className='verdict verdict-bad';vd.innerHTML='<strong>SIN VALOR — Evitar esta apuesta</strong>La cuota no tiene valor real. La casa tiene ventaja matemática. Buscar otro mercado o partido.';}
+  vDone=true;calcRating();updateChecklist();
+}
+
+function convertOdds(from){
+  let dec,am,pct;
+  if(from==='dec'){dec=+document.getElementById('c_dec').value;if(!dec||dec<1.01)return;pct=100/dec;am=dec>=2?(dec-1)*100:-(100/(dec-1));}
+  else if(from==='am'){am=+document.getElementById('c_am').value;if(isNaN(am))return;dec=am>0?am/100+1:100/Math.abs(am)+1;pct=100/dec;}
+  else{pct=+document.getElementById('c_pct').value;if(!pct)return;dec=100/pct;am=dec>=2?(dec-1)*100:-(100/(dec-1));}
+  if(from!=='dec')document.getElementById('c_dec').value=dec.toFixed(2);
+  if(from!=='am')document.getElementById('c_am').value=Math.round(am);
+  if(from!=='pct')document.getElementById('c_pct').value=pct.toFixed(1);
+}
+
+function calcRating(){
+  const conf=+document.getElementById('conf').value||3;
+  const sc=Math.min(5,Math.max(1,Math.round((gEV*10+conf)/2)));
+  const lbls=['Muy mala','Mala','Regular','Buena','Excelente'];
+  const stars='★'.repeat(sc)+'☆'.repeat(5-sc);
+  document.getElementById('rating_out').innerHTML=`<div style="display:flex;align-items:center;gap:12px"><span class="stars">${stars}</span><span style="font-family:var(--display);font-weight:700">${lbls[sc-1]}</span><span style="font-family:var(--mono);font-size:.75rem;color:var(--text3)">${sc}/5</span></div>`;
+}
+
+/* ══ KELLY ══ */
+function calcKelly(){
+  const b=+document.getElementById('bk_total').value||1000;
+  const od=+document.getElementById('bk_odd').value||2.1;
+  const p=+document.getElementById('bk_prob').value/100||0.55;
+  const fr=+document.getElementById('bk_frac').value||0.25;
+  const q=1-p,bn=od-1;
+  const kelly=Math.max(0,(bn*p-q)/bn);
+  const bet=b*kelly*fr;
+  const pct=kelly*fr*100;
+  document.getElementById('kel_full').textContent=(kelly*100).toFixed(1)+'%';
+  document.getElementById('kel_bet').textContent='$'+bet.toFixed(2);
+  document.getElementById('kel_pct').textContent=pct.toFixed(1)+'%';
+  gBet=bet;gBankroll=b;kDone=true;
+  runSim();updateChecklist();
+}
+
+/* ══ SIM ══ */
+function runSim(){
+  const b=+document.getElementById('bk_total').value||1000;
+  const od=+document.getElementById('bk_odd').value||2.1;
+  const p=+document.getElementById('bk_prob').value/100||0.55;
+  const fr=+document.getElementById('bk_frac').value||0.25;
+  const n=+document.getElementById('sim_n').value||50;
+  const bn=od-1,kelly=Math.max(0,(bn*p-(1-p))/bn)*fr;
+  let bk=b,pk=b,mdd=0,hist=[b];
+  for(let i=0;i<n;i++){
+    const bet=bk*kelly;
+    bk+=Math.random()<p?bet*(od-1):-bet;
+    if(bk>pk)pk=bk;
+    const dd=(pk-bk)/pk*100;
+    if(dd>mdd)mdd=dd;
+    hist.push(bk);
+  }
+  const roi=(bk-b)/b*100;
+  document.getElementById('sim_cards').innerHTML=`
+    <div class="metric"><div class="metric-label">Bankroll final</div><div class="metric-value" style="font-size:1.2rem">$${Math.round(bk).toLocaleString()}</div></div>
+    <div class="metric ${roi>=0?'green':'red'}"><div class="metric-label">ROI simulado</div><div class="metric-value" style="font-size:1.2rem">${roi>=0?'+':''}${roi.toFixed(1)}%</div></div>
+    <div class="metric amber"><div class="metric-label">Max drawdown</div><div class="metric-value" style="font-size:1.2rem">-${mdd.toFixed(1)}%</div></div>`;
+  if(growthInst){growthInst.destroy();}
+  const ctx=document.getElementById('growthChart');
+  if(!ctx)return;
+  const step=Math.max(1,Math.floor(hist.length/25));
+  const labels=hist.filter((_,i)=>i%step===0).map((_,i)=>'');
+  const data=hist.filter((_,i)=>i%step===0);
+  growthInst=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets:[{data,borderColor:bk>b?'#00e87a':'#ff4d6d',borderWidth:1.5,fill:false,pointRadius:0,tension:0.3}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{display:false},y:{display:true,ticks:{color:'#4a5568',font:{family:'DM Mono',size:10},callback:v=>'$'+Math.round(v)},grid:{color:'rgba(255,255,255,.04)'}}}}
+  });
+}
+
+/* ══ CHECKLIST & SUMMARY ══ */
+function setBadge(id,ok){
+  const el=document.getElementById(id);
+  el.className=ok?'badge badge-green':'badge badge-amber';
+  el.textContent=ok?'Listo':'Pendiente';
+}
+function updateChecklist(){
+  setBadge('chk1',pDone);
+  setBadge('chk2',xDone);
+  setBadge('chk3',vDone);
+  setBadge('chk4',kDone);
+  setBadge('chk5',gEdge>0);
+  setBadge('chk6',kDone&&(gBet/gBankroll)<0.05);
+}
+function updateGlobalSummary(){
+  const h=document.getElementById('p_home').textContent;
+  const d=document.getElementById('p_draw').textContent;
+  const a=document.getElementById('p_away').textContent;
+  if(!pDone&&!vDone){document.getElementById('global_sum').innerHTML='<p style="color:var(--text3);font-size:.85rem">Completa los módulos anteriores para ver el resumen aquí.</p>';return;}
+  document.getElementById('global_sum').innerHTML=`
+    <div class="grid3" style="margin-bottom:1rem">
+      <div class="metric green"><div class="metric-label">P. local</div><div class="metric-value">${h}</div></div>
+      <div class="metric"><div class="metric-label">Empate</div><div class="metric-value">${d}</div></div>
+      <div class="metric red"><div class="metric-label">P. visitante</div><div class="metric-value">${a}</div></div>
+    </div>
+    <div class="row-item"><span class="key">EV de la apuesta</span><span style="font-family:var(--mono);font-size:.85rem;color:${gEV>0?'var(--green)':'var(--red)'}">${gEV>0?'+':''}${gEV.toFixed(3)}</span></div>
+    <div class="row-item"><span class="key">Edge sobre la casa</span><span style="font-family:var(--mono);font-size:.85rem;color:${gEdge>0?'var(--green)':'var(--red)'}">${gEdge>0?'+':''}${gEdge.toFixed(1)}%</span></div>
+    <div class="row-item"><span class="key">Apuesta Kelly recomendada</span><span style="font-family:var(--mono);font-size:.85rem;color:var(--green)">$${gBet.toFixed(2)}</span></div>`;
+}
+
+/* ══ REPORT MODAL ══ */
+function openReport(){
+  updateGlobalSummary();
+  const h=document.getElementById('p_home').textContent||'—';
+  const d=document.getElementById('p_draw').textContent||'—';
+  const a=document.getElementById('p_away').textContent||'—';
+  const good=gEV>0.05&&gEdge>3;
+  const marginal=gEV>0&&!good;
+  const vColor=good?'var(--green)':marginal?'var(--amber)':'var(--red)';
+  const vText=good?'APOSTAR — ALTA CONFIANZA':marginal?'PRECAUCIÓN — VALOR MARGINAL':'NO APOSTAR — SIN EDGE SUFICIENTE';
+  const vBg=good?'var(--green-dim)':marginal?'var(--amber-dim)':'var(--red-dim)';
+  const rec=good
+    ?'Los indicadores estadísticos son sólidos. El mercado de victoria local (1X2) o Handicap Asiático capturan mejor el edge calculado. Apostar el monto recomendado por Kelly.'
+    :marginal
+    ?'El edge es muy pequeño. Reducir el monto a la mitad del Kelly o buscar un mercado alternativo con mayor valor antes de apostar.'
+    :'La cuota no ofrece valor real. Pasar al siguiente partido o buscar mercados alternativos (handicap, goles) donde el EV sea positivo y significativo.';
+  document.getElementById('modal_body').innerHTML=`
+    <div style="background:${vBg};border:1px solid ${vColor};border-radius:var(--radius);padding:1.25rem;text-align:center;margin-bottom:1.25rem">
+      <div style="font-family:var(--display);font-size:1.2rem;font-weight:800;color:${vColor};margin-bottom:.5rem">${vText}</div>
+      <p style="font-size:.85rem;color:var(--text2)">${rec}</p>
+    </div>
+    <div class="modal-section">
+      <h3>Probabilidades Poisson</h3>
+      <div class="modal-row"><span>Victoria local</span><span style="font-family:var(--mono);color:var(--green)">${h}</span></div>
+      <div class="modal-row"><span>Empate</span><span style="font-family:var(--mono)">${d}</span></div>
+      <div class="modal-row"><span>Victoria visitante</span><span style="font-family:var(--mono);color:var(--red)">${a}</span></div>
+    </div>
+    <div class="modal-section">
+      <h3>Indicadores de valor</h3>
+      <div class="modal-row"><span>Valor esperado (EV)</span><span style="font-family:var(--mono);color:${gEV>0?'var(--green)':'var(--red)'}">${gEV>0?'+':''}${gEV.toFixed(3)}</span></div>
+      <div class="modal-row"><span>Edge sobre la casa</span><span style="font-family:var(--mono);color:${gEdge>0?'var(--green)':'var(--red)'}">${gEdge>0?'+':''}${gEdge.toFixed(1)}%</span></div>
+      <div class="modal-row"><span>Apuesta Kelly recomendada</span><span style="font-family:var(--mono);color:var(--green)">$${gBet.toFixed(2)}</span></div>
+      <div class="modal-row"><span>% del bankroll</span><span style="font-family:var(--mono)">${((gBet/gBankroll)*100).toFixed(2)}%</span></div>
+    </div>
+    <div style="background:var(--amber-dim);border-left:3px solid var(--amber);padding:.75rem 1rem;border-radius:var(--radius);font-size:.8rem;color:#ffd999">
+      Este reporte es educativo. Ningún modelo estadístico garantiza ganancias. Apuesta con responsabilidad.
+    </div>`;
+  document.getElementById('reportModal').classList.add('open');
+}
+function closeReport(){document.getElementById('reportModal').classList.remove('open');}
+document.getElementById('reportModal').addEventListener('click',e=>{if(e.target===document.getElementById('reportModal'))closeReport();});
+
+/* ══ AI MODULE ══ */
+let chatHistory=[];
+
+function getKey(){return document.getElementById('api_key').value.trim();}
+
+function getMatchContext(){
+  const h=document.getElementById('p_home').textContent||'N/A';
+  const d=document.getElementById('p_draw').textContent||'N/A';
+  const a=document.getElementById('p_away').textContent||'N/A';
+  const xgh=document.getElementById('xg_hp').textContent||'N/A';
+  const xga=document.getElementById('xg_ap').textContent||'N/A';
+  const btts=document.getElementById('btts_p').textContent||'N/A';
+  const o25=document.getElementById('o25_p').textContent||'N/A';
+  const ev=gEV.toFixed(3);
+  const edge=gEdge.toFixed(1);
+  const bet=gBet.toFixed(2);
+  const bk=gBankroll;
+  return `DATOS DEL ANÁLISIS ESTADÍSTICO:
+- Probabilidades Poisson: Local ${h} | Empate ${d} | Visitante ${a}
+- xG esperados: Local ${xgh} | Visitante ${xga}
+- BTTS (ambos marcan): ${btts} | Más de 2.5 goles: ${o25}
+- Valor esperado (EV): ${ev}
+- Edge sobre la casa: ${edge}%
+- Apuesta Kelly recomendada: $${bet} de un bankroll de $${bk}
+- Módulos completados: Poisson=${pDone}, xG=${xDone}, Value=${vDone}, Kelly=${kDone}`;
+}
+
+async function callClaude(messages){
+  const key=getKey();
+  if(!key){alert('Ingresa tu API Key de Anthropic primero.');return null;}
+  const resp=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({
+      model:'claude-sonnet-4-20250514',
+      max_tokens:1000,
+      system:`Eres un analista experto en apuestas deportivas de fútbol. Tu rol es analizar datos estadísticos (Poisson, xG, Value Betting, Kelly) y dar recomendaciones claras, profesionales y honestas. Siempre incluyes un aviso de que las apuestas implican riesgo. Respondes en español, de forma concisa y directa. No repites los datos que ya conoces del contexto — ve directo al análisis y la recomendación.`,
+      messages
+    })
+  });
+  if(!resp.ok){const e=await resp.json();throw new Error(e.error?.message||resp.statusText);}
+  const data=await resp.json();
+  return data.content[0].text;
+}
+
+async function testKey(){
+  const key=getKey();
+  if(!key){setKeyStatus('Ingresa una API Key primero','error');return;}
+  const btn=document.getElementById('key_btn');
+  btn.textContent='Verificando...';btn.disabled=true;
+  setKeyStatus('','');
+  try{
+    await callClaude([{role:'user',content:'Responde solo: OK'}]);
+    setKeyStatus('✓ API Key válida — IA lista','ok');
+  }catch(e){
+    setKeyStatus('✗ Error: '+e.message,'error');
+  }finally{btn.textContent='Verificar';btn.disabled=false;}
+}
+
+function setKeyStatus(msg,type){
+  const el=document.getElementById('key_status');
+  if(!msg){el.style.display='none';return;}
+  el.style.display='block';
+  el.style.background=type==='ok'?'var(--green-dim)':type==='error'?'var(--red-dim)':'var(--amber-dim)';
+  el.style.color=type==='ok'?'var(--green)':type==='error'?'var(--red)':'var(--amber)';
+  el.style.border=`1px solid ${type==='ok'?'rgba(0,232,122,.3)':type==='error'?'rgba(255,77,109,.3)':'rgba(255,181,71,.3)'}`;
+  el.textContent=msg;
+}
+
+async function runAutoAnalysis(){
+  if(!getKey()){alert('Ingresa tu API Key primero.');return;}
+  const btn=document.getElementById('auto_btn');
+  const resultDiv=document.getElementById('auto_result');
+  const textDiv=document.getElementById('auto_text');
+  btn.textContent='✦ Analizando...';btn.disabled=true;
+  resultDiv.style.display='none';
+  const ctx=getMatchContext();
+  try{
+    const reply=await callClaude([{role:'user',content:`Analiza estos datos de un partido de fútbol y dame:\n1. Evaluación del partido (2-3 líneas)\n2. Evaluación del value betting (EV y edge)\n3. Mercados recomendados con justificación\n4. Veredicto final: apostar o no, cuánto y en qué mercado\n5. Riesgos principales a considerar\n\n${ctx}`}]);
+    textDiv.textContent=reply;
+    resultDiv.style.display='block';
+  }catch(e){
+    textDiv.textContent='Error: '+e.message;
+    resultDiv.style.display='block';
+  }finally{
+    btn.textContent='✦ Analizar con IA todos los datos →';
+    btn.disabled=false;
+  }
+}
+
+function addChatMsg(text,role){
+  const wrap=document.getElementById('chat_msgs');
+  if(wrap.children.length===1&&wrap.children[0].style.textAlign==='center')wrap.innerHTML='';
+  const label=document.createElement('div');
+  label.className=`chat-label ${role==='user'?'user':'ai'}`;
+  label.textContent=role==='user'?'TÚ':'IA ANALISTA';
+  const bubble=document.createElement('div');
+  bubble.className=`chat-bubble chat-${role}`;
+  bubble.textContent=text;
+  const container=document.createElement('div');
+  container.style.cssText=`display:flex;flex-direction:column;align-items:${role==='user'?'flex-end':'flex-start'}`;
+  container.appendChild(label);
+  container.appendChild(bubble);
+  wrap.appendChild(container);
+  wrap.scrollTop=wrap.scrollHeight;
+  return bubble;
+}
+
+function addTyping(){
+  const wrap=document.getElementById('chat_msgs');
+  const div=document.createElement('div');
+  div.id='typing_ind';
+  div.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';
+  div.style.cssText='display:flex;flex-direction:column;align-items:flex-start';
+  wrap.appendChild(div);
+  wrap.scrollTop=wrap.scrollHeight;
+}
+function removeTyping(){const el=document.getElementById('typing_ind');if(el)el.remove();}
+
+async function sendChat(){
+  const inp=document.getElementById('chat_input');
+  const msg=inp.value.trim();
+  if(!msg)return;
+  if(!getKey()){alert('Ingresa tu API Key primero.');return;}
+  inp.value='';
+  addChatMsg(msg,'user');
+  const ctx=getMatchContext();
+  chatHistory.push({role:'user',content:msg});
+  addTyping();
+  const btn=document.getElementById('chat_btn');
+  btn.disabled=true;
+  try{
+    const messages=[
+      {role:'user',content:`Contexto del partido que estoy analizando:\n${ctx}\n\nPregunta: ${chatHistory[0].content}`},
+      ...chatHistory.slice(1)
+    ];
+    const reply=await callClaude(messages);
+    removeTyping();
+    addChatMsg(reply,'ai');
+    chatHistory.push({role:'assistant',content:reply});
+  }catch(e){
+    removeTyping();
+    addChatMsg('Error: '+e.message,'ai');
+  }finally{btn.disabled=false;}
+}
+
+function quickQ(q){document.getElementById('chat_input').value=q;sendChat();}
+
+/* ══ INIT ══ */
+calcPoisson();calcXG();calcValue();calcKelly();
+</script>
+</body>
+</html>
